@@ -32,7 +32,7 @@ def main():
         print("The target directory does not exists")
         exit(1)
 
-    language = args.language
+    language: str = args.language
     if not validLanguages.__contains__(language):
         print("Not a valid language provided")
         exit(1)
@@ -120,10 +120,12 @@ def update_audios(pathStr: str, audios: list, language: str) -> bool:
     mkv_command = "mkvpropedit " + normalize_path(pathStr)
 
     for audio in audios:
-        lang: str = audio["properties"]["language"]
+        props: dict = audio["properties"]
+
+        lang: str = props["language"]
         default: str = str(int(lang == language))
 
-        mkv_command += " -e track:@" + str(audio["properties"]["number"]) + " "
+        mkv_command += " -e track:@" + str(props["number"]) + " "
         mkv_command += (
             "-s flag-default="
             + default
@@ -139,17 +141,31 @@ def update_subs(pathStr: str, subs: list, language: str) -> bool:
     mkv_command = "mkvpropedit " + normalize_path(pathStr)
 
     for sub in subs:
-        lang: str = sub["properties"]["language"]
-        default: str = str(int(lang == "spa" and language != "spa"))
-        forced: str = str(int(lang == "und"))
+        props: dict = sub["properties"]
 
-        mkv_command += " -e track:@" + str(sub["properties"]["number"]) + " "
+        lang: str = props["language"]
+        name: str = ""
+
+        if "track_name" in props:
+            name = props["track_name"]
+
+        if name.upper().__contains__("FORZADO"):
+            lang = "und"
+
+        forced: str = str(int(lang == "und"))
+        default: str = str(int(lang == "spa" and language != "spa"))
+
+        mkv_command += " -e track:@" + str(props["number"]) + " "
         mkv_command += (
             "-s flag-default="
             + default
             + " -s flag-forced="
             + forced
-            + " -s flag-enabled=1 -s name="
+            + " -s flag-enabled="
+            + str(1)
+            + " -s language="
+            + lang
+            + " -s name="
             + subtitles[lang]
         )
 
