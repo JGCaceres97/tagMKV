@@ -125,6 +125,14 @@ def update_audios(pathStr: str, audios: list, language: str) -> bool:
         lang: str = props["language"]
         default: str = str(int(lang == language))
 
+        tagFound: bool = lang in languages
+
+        if not tagFound:
+            print("AUDIO TAG NOT FOUND")
+
+        while not lang in languages:
+            lang = input("\"" + lang + "\" not found in defined dict, enter an alternative: ")
+
         mkv_command += " -e track:@" + str(props["number"]) + " "
         mkv_command += (
             "-s flag-default="
@@ -132,6 +140,9 @@ def update_audios(pathStr: str, audios: list, language: str) -> bool:
             + " -s flag-enabled=1 -s flag-forced=0 -s name="
             + languages[lang]
         )
+
+        if not tagFound:
+            mkv_command += " -s language=" + lang
 
     result = getstatusoutput(mkv_command.strip())
     return result[0] == 0
