@@ -2,17 +2,15 @@
 
 from pathlib import Path
 from argparse import ArgumentParser
-from os import path, scandir
-from json import loads
-from subprocess import getstatusoutput
-
-languages = {"eng": "Inglés", "spa": '"Español Latino"', "jpn": "Japonés"}
-subtitles = {
-    "eng": '"Subtítulos Inglés"',
-    "spa": '"Subtítulos Español"',
-    "und": '"Subtítulos Forzados"',
-}
-validLanguages = ["eng", "spa", "jpn"]
+from os import scandir
+from functions.tracks import (
+    get_tracks,
+    update_audios,
+    update_subs,
+    update_title,
+    update_videos,
+)
+from const.languages import validLanguages
 
 
 def main():
@@ -23,19 +21,25 @@ def main():
         required=True,
         help="directory containing files from which update tags",
     )
-    parser.add_argument("-l", "--language", required=True, help="original language from the media")
+    parser.add_argument("-l", "--language", help="original language from the media")
 
     args = parser.parse_args()
+    argLang: str = args.language
 
     dir = Path(args.directory)
     if not dir.exists():
-        print("The target directory does not exists")
+        print("The target directory does not exists.")
         exit(1)
 
-    language: str = args.language
-    if not validLanguages.__contains__(language):
-        print("Not a valid language provided")
-        exit(1)
+    while argLang is None or not validLanguages.__contains__(argLang):
+        argLang = input("Enter the default audio language to be set: ")
+
+        if not validLanguages.__contains__(argLang):
+            langOptions = str(validLanguages).replace("'", "")
+
+            print(f"Not a valid language provided. {langOptions}\n")
+
+    language: str = argLang
 
     with scandir(dir) as files:
         for file in files:
@@ -45,7 +49,7 @@ def main():
             if not file.name.endswith(".mkv"):
                 continue
 
-            print(file.name + "...", end=" ")
+            print(f"{file.name}...", end=" ")
             tracks = get_tracks(file.path)
             if tracks[0]:
                 print("ERROR")
@@ -55,10 +59,15 @@ def main():
 
                 continue
 
+            videos = []
             audios = []
             subtitles = []
 
             for track in tracks[1]:
+                if track["type"] == "video":
+                    videos.append(track)
+                    continue
+
                 if track["type"] == "audio":
                     audios.append(track)
                     continue
@@ -68,120 +77,26 @@ def main():
                     continue
 
             success_title = update_title(file.path, file.name)
-
             if not success_title:
                 print("ERROR WITH TITLE")
                 continue
 
-            sucess_audios = update_audios(file.path, audios, language)
+            clean_videos = update_videos(file.path, videos)
+            if not clean_videos:
+                print("ERROR WITH VIDEOS")
+                continue
 
+            sucess_audios = update_audios(file.path, audios, language)
             if not sucess_audios:
                 print("ERROR WITH AUDIOS")
                 continue
 
             sucess_subs = update_subs(file.path, subtitles, language)
-
             if not sucess_subs:
                 print("ERROR WITH SUBS")
                 continue
 
             print("OK")
-
-
-def normalize_path(pathStr: str) -> str:
-    return path.normpath('"' + pathStr + '"')
-
-
-def get_title_from_filename(file_name: str) -> str:
-    return file_name.split(" - ")[1].split(".mkv")[0].strip()
-
-
-def get_tracks(pathStr: str) -> tuple:
-    mkv_command = "mkvmerge -J " + normalize_path(pathStr)
-
-    file_info = getstatusoutput(mkv_command.strip())
-    json_result: dict = loads(file_info[1])
-
-    if file_info[0] != 0:
-        return (True, json_result["errors"])
-
-    return (False, json_result["tracks"])
-
-
-def update_title(pathStr: str, file_name: str) -> bool:
-    title = get_title_from_filename(file_name)
-    mkv_command = "mkvpropedit " + normalize_path(pathStr) + ' -e info -s title="' + title + '"'
-
-    result = getstatusoutput(mkv_command.strip())
-    return result[0] == 0
-
-
-def update_audios(pathStr: str, audios: list, language: str) -> bool:
-    mkv_command = "mkvpropedit " + normalize_path(pathStr)
-
-    for audio in audios:
-        props: dict = audio["properties"]
-
-        lang: str = props["language"]
-        default: str = str(int(lang == language))
-
-        tagFound: bool = lang in languages
-
-        if not tagFound:
-            print("AUDIO TAG NOT FOUND")
-
-        while not lang in languages:
-            lang = input("\"" + lang + "\" not found in defined dict, enter an alternative: ")
-
-        mkv_command += " -e track:@" + str(props["number"]) + " "
-        mkv_command += (
-            "-s flag-default="
-            + default
-            + " -s flag-enabled=1 -s flag-forced=0 -s name="
-            + languages[lang]
-        )
-
-        if not tagFound:
-            mkv_command += " -s language=" + lang
-
-    result = getstatusoutput(mkv_command.strip())
-    return result[0] == 0
-
-
-def update_subs(pathStr: str, subs: list, language: str) -> bool:
-    mkv_command = "mkvpropedit " + normalize_path(pathStr)
-
-    for sub in subs:
-        props: dict = sub["properties"]
-
-        lang: str = props["language"]
-        name: str = ""
-
-        if "track_name" in props:
-            name = props["track_name"]
-
-        if name.upper().__contains__("FORZADO"):
-            lang = "und"
-
-        forced: str = str(int(lang == "und"))
-        default: str = str(int(lang == "spa" and language != "spa"))
-
-        mkv_command += " -e track:@" + str(props["number"]) + " "
-        mkv_command += (
-            "-s flag-default="
-            + default
-            + " -s flag-forced="
-            + forced
-            + " -s flag-enabled="
-            + str(1)
-            + " -s language="
-            + lang
-            + " -s name="
-            + subtitles[lang]
-        )
-
-    result = getstatusoutput(mkv_command.strip())
-    return result[0] == 0
 
 
 main()
